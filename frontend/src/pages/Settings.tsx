@@ -19,7 +19,7 @@ const Settings = () => {
   const [loginStatus, setLoginStatus] = useState<string>('idle')
   const [statusMessage, setStatusMessage] = useState<string>('')
   const [cookieStatus, setCookieStatus] = useState<CookieStatus | null>(null)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     checkCookieStatus()
