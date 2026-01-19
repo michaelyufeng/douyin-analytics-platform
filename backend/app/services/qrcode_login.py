@@ -254,52 +254,64 @@ class QRCodeLoginService:
                 except Exception:
                     pass
 
-                # Try to click login button - use multiple selectors
-                login_clicked = False
-                login_selectors = [
-                    # Top right login button (red button)
-                    'xpath=//button[contains(text(), "登录")]',
-                    'xpath=//div[contains(@class, "login") and contains(text(), "登录")]',
-                    'xpath=//*[contains(@class, "header")]//button[contains(text(), "登录")]',
-                    'xpath=//*[contains(@class, "login-btn")]',
-                    # Generic selectors
-                    'text=登录',
-                    'button:has-text("登录")',
-                ]
+                # Try to click login button using JavaScript for better reliability
+                login_clicked = await self.page.evaluate("""() => {
+                    // Find all elements containing "登录" text
+                    const elements = document.querySelectorAll('*');
+                    for (const el of elements) {
+                        if (el.innerText === '登录' && el.offsetParent !== null) {
+                            // Check if it's a clickable element (button, link, or has click handler)
+                            const tag = el.tagName.toLowerCase();
+                            const isClickable = tag === 'button' || tag === 'a' ||
+                                el.onclick || el.getAttribute('role') === 'button' ||
+                                el.classList.contains('login') || el.classList.contains('btn');
+                            if (isClickable || el.offsetWidth > 30) {
+                                el.click();
+                                return true;
+                            }
+                        }
+                    }
+                    // Try clicking any element with "登录" in its text
+                    for (const el of elements) {
+                        if (el.innerText && el.innerText.includes('登录') &&
+                            !el.innerText.includes('扫码') && el.offsetParent !== null &&
+                            el.offsetWidth > 30 && el.offsetWidth < 200) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
 
-                for selector in login_selectors:
-                    try:
-                        login_btn = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
-                        if login_btn:
-                            await login_btn.click()
-                            login_clicked = True
-                            logger.info(f"Clicked login button with selector: {selector}")
-                            await asyncio.sleep(3)
-                            break
-                    except Exception:
-                        continue
-
-                if not login_clicked:
+                if login_clicked:
+                    logger.info("Clicked login button via JavaScript")
+                    await asyncio.sleep(3)
+                else:
                     logger.warning("Could not find login button, trying to look for QR code directly")
 
-                # Try to find and click QR code login tab
-                qr_tab_selectors = [
-                    'xpath=//div[contains(text(), "扫码登录")]',
-                    'xpath=//span[contains(text(), "扫码登录")]',
-                    'xpath=//*[contains(@class, "qrcode") or contains(@class, "scan")]//span',
-                    'text=扫码登录',
-                ]
+                # Try to find and click QR code login tab using JavaScript
+                qr_tab_clicked = await self.page.evaluate("""() => {
+                    const elements = document.querySelectorAll('*');
+                    for (const el of elements) {
+                        if (el.innerText && el.innerText.includes('扫码登录') && el.offsetParent !== null) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    // Also try clicking elements with qrcode-related classes
+                    const qrElements = document.querySelectorAll('[class*="qrcode"], [class*="scan"], [class*="QRCode"]');
+                    for (const el of qrElements) {
+                        if (el.offsetParent !== null) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
 
-                for selector in qr_tab_selectors:
-                    try:
-                        qr_tab = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
-                        if qr_tab:
-                            await qr_tab.click()
-                            logger.info(f"Clicked QR tab with selector: {selector}")
-                            await asyncio.sleep(2)
-                            break
-                    except Exception:
-                        continue
+                if qr_tab_clicked:
+                    logger.info("Clicked QR tab via JavaScript")
+                    await asyncio.sleep(2)
 
                 # Take screenshot of the page for debugging
                 screenshot_path = f"/tmp/douyin_login_{session_id}.png"
