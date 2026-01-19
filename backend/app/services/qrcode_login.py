@@ -254,23 +254,52 @@ class QRCodeLoginService:
                 except Exception:
                     pass
 
-                # Try to click login button if exists
-                try:
-                    login_btn = await self.page.query_selector("button:has-text('登录'), div:has-text('登录'):not(:has(*))")
-                    if login_btn:
-                        await login_btn.click()
-                        await asyncio.sleep(2)
-                except Exception as e:
-                    logger.debug(f"No login button found or click failed: {e}")
+                # Try to click login button - use multiple selectors
+                login_clicked = False
+                login_selectors = [
+                    # Top right login button (red button)
+                    'xpath=//button[contains(text(), "登录")]',
+                    'xpath=//div[contains(@class, "login") and contains(text(), "登录")]',
+                    'xpath=//*[contains(@class, "header")]//button[contains(text(), "登录")]',
+                    'xpath=//*[contains(@class, "login-btn")]',
+                    # Generic selectors
+                    'text=登录',
+                    'button:has-text("登录")',
+                ]
+
+                for selector in login_selectors:
+                    try:
+                        login_btn = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                        if login_btn:
+                            await login_btn.click()
+                            login_clicked = True
+                            logger.info(f"Clicked login button with selector: {selector}")
+                            await asyncio.sleep(3)
+                            break
+                    except Exception:
+                        continue
+
+                if not login_clicked:
+                    logger.warning("Could not find login button, trying to look for QR code directly")
 
                 # Try to find and click QR code login tab
-                try:
-                    qr_tab = await self.page.query_selector("div:has-text('扫码登录'), span:has-text('扫码登录')")
-                    if qr_tab:
-                        await qr_tab.click()
-                        await asyncio.sleep(2)
-                except Exception as e:
-                    logger.debug(f"No QR tab found: {e}")
+                qr_tab_selectors = [
+                    'xpath=//div[contains(text(), "扫码登录")]',
+                    'xpath=//span[contains(text(), "扫码登录")]',
+                    'xpath=//*[contains(@class, "qrcode") or contains(@class, "scan")]//span',
+                    'text=扫码登录',
+                ]
+
+                for selector in qr_tab_selectors:
+                    try:
+                        qr_tab = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                        if qr_tab:
+                            await qr_tab.click()
+                            logger.info(f"Clicked QR tab with selector: {selector}")
+                            await asyncio.sleep(2)
+                            break
+                    except Exception:
+                        continue
 
                 # Take screenshot of the page for debugging
                 screenshot_path = f"/tmp/douyin_login_{session_id}.png"
