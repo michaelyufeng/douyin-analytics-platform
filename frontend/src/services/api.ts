@@ -152,4 +152,30 @@ export const statsApi = {
   getDataTrends: (days = 7) => get('/stats/trends', { days }),
 }
 
+// Auth API
+export const authApi = {
+  createQRCode: () => post<{
+    success: boolean
+    session_id?: string
+    qr_image?: string
+    message: string
+    error?: string
+  }>('/auth/qrcode/create'),
+  checkQRStatus: (sessionId: string) => get<{
+    status: string
+    message: string
+    cookie?: string
+  }>(`/auth/qrcode/status/${sessionId}`),
+  cancelQRLogin: (sessionId: string) => post(`/auth/qrcode/cancel/${sessionId}`),
+  saveCookie: (cookie: string) => post<{
+    success: boolean
+    message: string
+  }>('/auth/cookie/save', { cookie }),
+  getCookieStatus: () => get<{
+    has_cookie: boolean
+    cookie_preview: string | null
+    message: string
+  }>('/auth/cookie/status'),
+}
+
 export default api

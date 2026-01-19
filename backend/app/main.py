@@ -9,7 +9,7 @@ import sys
 
 from app.config import settings
 from app.db.database import init_db, close_db
-from app.api import users, videos, comments, lives, search, ranking, tasks, analysis, websocket, stats
+from app.api import users, videos, comments, lives, search, ranking, tasks, analysis, websocket, stats, auth
 
 
 # Configure logging
@@ -70,6 +70,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["任务"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["分析"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket"])
 app.include_router(stats.router, prefix="/api", tags=["统计"])
+app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 
 
 @app.get("/", tags=["健康检查"])
