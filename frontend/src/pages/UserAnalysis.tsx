@@ -27,8 +27,8 @@ import {
   PlusOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import { userApi, analysisApi } from '../services/api'
-import { formatNumber, formatDate, extractIdFromUrl } from '../utils/format'
+import { userApi } from '../services/api'
+import { formatNumber, extractIdFromUrl } from '../utils/format'
 
 interface UserProfile {
   id: number

@@ -15,7 +15,6 @@ import {
   Empty,
   Avatar,
   Space,
-  Divider,
 } from 'antd'
 import {
   SearchOutlined,
@@ -367,7 +366,7 @@ const VideoAnalysis = () => {
                             <Space>
                               <span>{comment.user?.nickname || '匿名用户'}</span>
                               {comment.ip_label && (
-                                <Tag size="small">{comment.ip_label}</Tag>
+                                <Tag>{comment.ip_label}</Tag>
                               )}
                             </Space>
                           }

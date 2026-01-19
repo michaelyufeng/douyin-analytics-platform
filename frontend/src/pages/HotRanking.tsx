@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, Tabs, List, Tag, Spin, Row, Col } from 'antd'
+import { Card, Tabs, List, Tag, Spin } from 'antd'
 import { FireOutlined, PlayCircleOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { rankingApi, searchApi } from '../services/api'
 import { formatNumber } from '../utils/format'

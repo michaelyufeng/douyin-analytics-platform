@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Card, Input, Button, Row, Col, Statistic, List, Tag, Empty, Spin, Progress } from 'antd'
 import { SearchOutlined, SmileOutlined, MehOutlined, FrownOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import { videoApi, analysisApi } from '../services/api'
+import { analysisApi } from '../services/api'
 
 const CommentAnalysis = () => {
   const [searchValue, setSearchValue] = useState('')

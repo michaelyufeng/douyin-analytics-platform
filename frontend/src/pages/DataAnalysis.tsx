@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Card, Row, Col, Input, Button, Tabs, Empty, Spin, Statistic } from 'antd'
-import { SearchOutlined, BarChartOutlined, LineChartOutlined, PieChartOutlined } from '@ant-design/icons'
+import { SearchOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import { analysisApi } from '../services/api'
 

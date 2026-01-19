@@ -10,7 +10,7 @@ import {
   MessageOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { rankingApi, searchApi, statsApi } from '../services/api'
+import { searchApi, statsApi } from '../services/api'
 import { formatNumber, formatTimeAgo } from '../utils/format'
 
 interface HotItem {

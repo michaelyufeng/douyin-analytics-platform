@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Card, Table, Button, Modal, Form, Input, Select, InputNumber, Switch, Tag, Space, message, Popconfirm } from 'antd'
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Modal, Form, Input, Select, InputNumber, Tag, Space, message, Popconfirm } from 'antd'
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined } from '@ant-design/icons'
 import { taskApi } from '../services/api'
 import { formatDate } from '../utils/format'
 

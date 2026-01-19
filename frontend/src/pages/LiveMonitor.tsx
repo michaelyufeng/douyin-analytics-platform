@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Card, Input, Button, Row, Col, Statistic, List, Tag, Empty, Spin, Avatar, Badge } from 'antd'
-import { SearchOutlined, VideoCameraOutlined, TeamOutlined, HeartOutlined, UserOutlined } from '@ant-design/icons'
+import { SearchOutlined, VideoCameraOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
 import { liveApi } from '../services/api'
 import { formatNumber } from '../utils/format'
 
