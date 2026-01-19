@@ -28,7 +28,7 @@ const Settings = () => {
   const [statusMessage, setStatusMessage] = useState<string>('')
   const [cookieStatus, setCookieStatus] = useState<CookieStatus | null>(null)
   const [consoleCommand, setConsoleCommand] = useState<ConsoleCommandData | null>(null)
-  const [activeTab, setActiveTab] = useState<string>('qrcode')
+  const [activeTab, setActiveTab] = useState<string>('qrcode')  // Online scanning as default
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Get server URL from current location
@@ -226,13 +226,13 @@ const Settings = () => {
     }
   }
 
-  // Tab content for QR Code login
+  // Tab content for QR Code login - Primary recommended method
   const QRCodeTabContent = (
     <div>
       <Alert
-        type="info"
-        message="在线扫码登录"
-        description="服务器会生成二维码，您用抖音 App 扫描后自动获取 Cookie。如果服务器无法正确显示二维码，请使用下方的备选方案。"
+        type="success"
+        message="推荐方式 - 扫码登录"
+        description="点击按钮后，用抖音 App 扫描二维码即可完成登录。服务器已优化反检测机制，支持虚拟显示。"
         style={{ marginBottom: 16 }}
       />
       <Button
@@ -242,21 +242,21 @@ const Settings = () => {
           setQrModalOpen(true)
           startQRLogin()
         }}
-        style={{ width: '100%' }}
+        style={{ width: '100%', height: 48 }}
         size="large"
       >
-        扫码登录抖音
+        立即扫码登录
       </Button>
     </div>
   )
 
-  // Tab content for Local Script (Auto Upload Version)
+  // Tab content for Local Script (Auto Upload Version) - Backup option
   const LocalScriptTabContent = (
     <div>
       <Alert
-        type="success"
-        message="推荐方式 - 本地脚本登录 (自动上传)"
-        description="下载脚本到本地运行，扫码后 Cookie 会自动上传到服务器，无需手动复制粘贴。"
+        type="info"
+        message="备选方案 - 本地脚本"
+        description="如果在线扫码无法使用，可下载脚本到本地运行，扫码后 Cookie 会自动上传到服务器。"
         style={{ marginBottom: 16 }}
       />
 
@@ -439,31 +439,31 @@ const Settings = () => {
                 onChange={setActiveTab}
                 items={[
                   {
-                    key: 'script',
-                    label: (
-                      <span>
-                        <CodeOutlined />
-                        本地脚本 (推荐)
-                      </span>
-                    ),
-                    children: LocalScriptTabContent,
-                  },
-                  {
                     key: 'qrcode',
                     label: (
                       <span>
                         <QrcodeOutlined />
-                        在线扫码
+                        扫码登录 (推荐)
                       </span>
                     ),
                     children: QRCodeTabContent,
+                  },
+                  {
+                    key: 'script',
+                    label: (
+                      <span>
+                        <CodeOutlined />
+                        本地脚本
+                      </span>
+                    ),
+                    children: LocalScriptTabContent,
                   },
                   {
                     key: 'console',
                     label: (
                       <span>
                         <CodeOutlined />
-                        控制台命令
+                        控制台
                       </span>
                     ),
                     children: ConsoleTabContent,
@@ -526,8 +526,8 @@ const Settings = () => {
                 message="Cookie 获取方式说明"
                 description={
                   <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
-                    <li><strong>本地脚本 (推荐)</strong>: 最可靠，扫码后自动上传到服务器</li>
-                    <li><strong>在线扫码</strong>: 方便快捷，但服务器端可能受限</li>
+                    <li><strong>扫码登录 (推荐)</strong>: 点击按钮，用抖音 App 扫码即可</li>
+                    <li><strong>本地脚本</strong>: 扫码失败时的备选方案</li>
                     <li><strong>控制台命令</strong>: 适合已登录用户快速提取</li>
                     <li><strong>手动粘贴</strong>: 通用方式，需要手动操作</li>
                   </ul>
@@ -535,12 +535,12 @@ const Settings = () => {
                 style={{ marginBottom: 16 }}
               />
               <Alert
-                type="warning"
-                message="远程服务器提示"
+                type="success"
+                message="服务器已优化"
                 description={
                   <div>
-                    <p style={{ margin: '4px 0' }}>如果程序部署在远程服务器上，服务器端二维码可能无法正常显示。</p>
-                    <p style={{ margin: '4px 0' }}>请使用 <strong>本地脚本</strong> 方式：在本地电脑运行脚本扫码，Cookie 会自动上传到服务器。</p>
+                    <p style={{ margin: '4px 0' }}>服务器已配置 xvfb 虚拟显示和反检测机制，支持直接扫码登录。</p>
+                    <p style={{ margin: '4px 0' }}>如果扫码仍然失败，可尝试使用「本地脚本」备选方案。</p>
                   </div>
                 }
               />

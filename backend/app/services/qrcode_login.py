@@ -1,14 +1,18 @@
 """
 QR Code Login Service for Douyin using Playwright.
 Allows users to scan QR code with Douyin app to automatically obtain cookies.
+
+Based on MediaCrawler's proven approach for Douyin login.
+Optimized with anti-detection measures for server-side operation with xvfb.
 """
 import asyncio
 import base64
 import json
 import os
+import random
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 from loguru import logger
@@ -16,167 +20,341 @@ from loguru import logger
 # Store active login sessions
 login_sessions: Dict[str, Dict[str, Any]] = {}
 
+# Essential cookies that must be present for successful login
+ESSENTIAL_COOKIES = ["sessionid", "sessionid_ss", "ttwid", "LOGIN_STATUS"]
+
+# Anti-detection stealth script - removes webdriver fingerprints
+STEALTH_JS = """
+// Remove webdriver property
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => undefined,
+    configurable: true
+});
+
+// Override navigator.plugins to look like a real browser
+Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+        const plugins = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+        ];
+        plugins.item = (i) => plugins[i];
+        plugins.namedItem = (name) => plugins.find(p => p.name === name);
+        plugins.refresh = () => {};
+        return plugins;
+    },
+    configurable: true
+});
+
+// Override navigator.languages
+Object.defineProperty(navigator, 'languages', {
+    get: () => ['zh-CN', 'zh', 'en-US', 'en'],
+    configurable: true
+});
+
+// Override navigator.platform
+Object.defineProperty(navigator, 'platform', {
+    get: () => 'Win32',
+    configurable: true
+});
+
+// Override navigator.hardwareConcurrency
+Object.defineProperty(navigator, 'hardwareConcurrency', {
+    get: () => 8,
+    configurable: true
+});
+
+// Override navigator.deviceMemory
+Object.defineProperty(navigator, 'deviceMemory', {
+    get: () => 8,
+    configurable: true
+});
+
+// Remove automation-related properties from window
+delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+
+// Override chrome runtime
+window.chrome = {
+    runtime: {
+        connect: () => {},
+        sendMessage: () => {},
+        onMessage: { addListener: () => {} }
+    },
+    loadTimes: () => {},
+    csi: () => {},
+    app: {}
+};
+
+// Override Permissions API
+const originalQuery = window.navigator.permissions.query;
+window.navigator.permissions.query = (parameters) => (
+    parameters.name === 'notifications' ?
+        Promise.resolve({ state: Notification.permission }) :
+        originalQuery(parameters)
+);
+
+// Canvas fingerprint randomization
+const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+HTMLCanvasElement.prototype.toDataURL = function(type) {
+    if (type === 'image/png' || type === undefined) {
+        const context = this.getContext('2d');
+        if (context) {
+            const imageData = context.getImageData(0, 0, this.width, this.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = imageData.data[i] ^ 1;
+            }
+            context.putImageData(imageData, 0, 0);
+        }
+    }
+    return originalToDataURL.apply(this, arguments);
+};
+
+// WebGL vendor/renderer spoofing
+const getParameterProto = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(parameter) {
+    if (parameter === 37445) return 'Intel Inc.';
+    if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+    return getParameterProto.apply(this, arguments);
+};
+
+console.log('Anti-detection stealth script loaded');
+"""
+
 
 class QRCodeLoginService:
     """Service for handling QR code login flow."""
 
     DOUYIN_LOGIN_URL = "https://www.douyin.com/"
-    QR_CODE_SELECTOR = "div.qrcode-image img, div.web-login-scan-code img, img[alt*='二维码'], canvas.qrcode"
-    LOGIN_SUCCESS_INDICATOR = "//div[contains(@class, 'avatar')]"
+
+    # MediaCrawler's proven QR code selector - this is the most reliable selector
+    QR_CODE_SELECTORS = [
+        "xpath=//div[@id='animate_qrcode_container']//img",  # MediaCrawler's selector
+        "xpath=//div[contains(@class, 'qrcode')]//img",
+        "xpath=//img[contains(@src, 'qrcode')]",
+        "div#animate_qrcode_container img",
+        "div.web-login-scan-code__content img",
+        "div[class*='qrcode'] img",
+        "img[alt*='二维码']",
+    ]
 
     def __init__(self):
         self.browser = None
         self.context = None
         self.page = None
 
-    async def start_login_session(self, session_id: str) -> Dict[str, Any]:
+    async def start_login_session(self, session_id: str, max_retries: int = 3) -> Dict[str, Any]:
         """
         Start a new QR code login session.
         Returns the QR code image as base64.
+
+        Uses headless=False with xvfb virtual display and comprehensive
+        anti-detection measures to avoid being blocked by Douyin.
         """
-        try:
-            from playwright.async_api import async_playwright
+        last_error = None
 
-            logger.info(f"Starting QR code login session: {session_id}")
-
-            # Initialize Playwright
-            playwright = await async_playwright().start()
-
-            # Launch browser (headless mode)
-            self.browser = await playwright.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox']
-            )
-
-            # Create context with common user agent
-            self.context = await self.browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
-            )
-
-            # Create page
-            self.page = await self.context.new_page()
-
-            # Navigate to Douyin
-            logger.info("Navigating to Douyin...")
-            await self.page.goto(self.DOUYIN_LOGIN_URL, wait_until="networkidle", timeout=60000)
-
-            # Wait a bit for page to stabilize
-            await asyncio.sleep(2)
-
-            # Try to click login button if exists
+        for attempt in range(max_retries):
             try:
-                login_btn = await self.page.query_selector("button:has-text('登录'), div:has-text('登录'):not(:has(*))")
-                if login_btn:
-                    await login_btn.click()
-                    await asyncio.sleep(2)
+                from playwright.async_api import async_playwright
+
+                logger.info(f"Starting QR code login session: {session_id} (attempt {attempt + 1}/{max_retries})")
+
+                # Initialize Playwright
+                playwright = await async_playwright().start()
+
+                # Launch browser with anti-detection configuration
+                # Use headless=False with xvfb virtual display for better anti-detection
+                self.browser = await playwright.chromium.launch(
+                    headless=False,  # Use real browser with xvfb virtual display
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-infobars',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--window-size=1920,1080',
+                        '--start-maximized',
+                        '--disable-extensions',
+                        '--disable-plugins-discovery',
+                        '--disable-default-apps',
+                        '--disable-background-networking',
+                        '--disable-sync',
+                        '--disable-translate',
+                        '--hide-scrollbars',
+                        '--metrics-recording-only',
+                        '--mute-audio',
+                        '--no-first-run',
+                        '--safebrowsing-disable-auto-update',
+                        f'--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(120, 125)}.0.0.0 Safari/537.36',
+                    ]
+                )
+
+                # Create context with realistic browser fingerprint
+                self.context = await self.browser.new_context(
+                    user_agent=f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{random.randint(120, 125)}.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                    locale="zh-CN",
+                    timezone_id="Asia/Shanghai",
+                    geolocation={"latitude": 39.9042, "longitude": 116.4074},  # Beijing
+                    permissions=["geolocation"],
+                    color_scheme="light",
+                    device_scale_factor=1,
+                    is_mobile=False,
+                    has_touch=False,
+                )
+
+                # Add anti-detection stealth script before page creation
+                await self.context.add_init_script(STEALTH_JS)
+
+                # Create page
+                self.page = await self.context.new_page()
+
+                # Additional page-level anti-detection
+                await self.page.evaluate("""() => {
+                    // Ensure webdriver is undefined
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                }""")
+
+                # Navigate to Douyin
+                logger.info("Navigating to Douyin...")
+                await self.page.goto(self.DOUYIN_LOGIN_URL, wait_until="networkidle", timeout=60000)
+
+                # Wait a bit for page to stabilize
+                await asyncio.sleep(2)
+
+                # Try to click login button if exists
+                try:
+                    login_btn = await self.page.query_selector("button:has-text('登录'), div:has-text('登录'):not(:has(*))")
+                    if login_btn:
+                        await login_btn.click()
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    logger.debug(f"No login button found or click failed: {e}")
+
+                # Try to find and click QR code login tab
+                try:
+                    qr_tab = await self.page.query_selector("div:has-text('扫码登录'), span:has-text('扫码登录')")
+                    if qr_tab:
+                        await qr_tab.click()
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    logger.debug(f"No QR tab found: {e}")
+
+                # Take screenshot of the page for debugging
+                screenshot_path = f"/tmp/douyin_login_{session_id}.png"
+                await self.page.screenshot(path=screenshot_path, full_page=False)
+
+                # Try to capture QR code
+                qr_image_base64 = await self._capture_qr_code()
+
+                if qr_image_base64:
+                    # Store session info
+                    login_sessions[session_id] = {
+                        "status": "waiting",
+                        "qr_image": qr_image_base64,
+                        "created_at": datetime.now(),
+                        "service": self,
+                        "playwright": playwright
+                    }
+
+                    return {
+                        "success": True,
+                        "session_id": session_id,
+                        "qr_image": qr_image_base64,
+                        "message": "请使用抖音 App 扫描二维码登录"
+                    }
+                else:
+                    # If can't find QR code, return the screenshot
+                    with open(screenshot_path, "rb") as f:
+                        screenshot_base64 = base64.b64encode(f.read()).decode()
+
+                    login_sessions[session_id] = {
+                        "status": "waiting",
+                        "qr_image": screenshot_base64,
+                        "created_at": datetime.now(),
+                        "service": self,
+                        "playwright": playwright
+                    }
+
+                    return {
+                        "success": True,
+                        "session_id": session_id,
+                        "qr_image": screenshot_base64,
+                        "message": "请在页面中找到二维码并使用抖音 App 扫描登录"
+                    }
+
             except Exception as e:
-                logger.debug(f"No login button found or click failed: {e}")
+                last_error = e
+                logger.warning(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+                await self.cleanup()
 
-            # Try to find and click QR code login tab
-            try:
-                qr_tab = await self.page.query_selector("div:has-text('扫码登录'), span:has-text('扫码登录')")
-                if qr_tab:
-                    await qr_tab.click()
-                    await asyncio.sleep(2)
-            except Exception as e:
-                logger.debug(f"No QR tab found: {e}")
+                if attempt < max_retries - 1:
+                    # Wait before retry with exponential backoff
+                    wait_time = (attempt + 1) * 2
+                    logger.info(f"Waiting {wait_time}s before retry...")
+                    await asyncio.sleep(wait_time)
 
-            # Take screenshot of the page for debugging
-            screenshot_path = f"/tmp/douyin_login_{session_id}.png"
-            await self.page.screenshot(path=screenshot_path, full_page=False)
-
-            # Try to capture QR code
-            qr_image_base64 = await self._capture_qr_code()
-
-            if qr_image_base64:
-                # Store session info
-                login_sessions[session_id] = {
-                    "status": "waiting",
-                    "qr_image": qr_image_base64,
-                    "created_at": datetime.now(),
-                    "service": self,
-                    "playwright": playwright
-                }
-
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "qr_image": qr_image_base64,
-                    "message": "请使用抖音 App 扫描二维码登录"
-                }
-            else:
-                # If can't find QR code, return the screenshot
-                with open(screenshot_path, "rb") as f:
-                    screenshot_base64 = base64.b64encode(f.read()).decode()
-
-                login_sessions[session_id] = {
-                    "status": "waiting",
-                    "qr_image": screenshot_base64,
-                    "created_at": datetime.now(),
-                    "service": self,
-                    "playwright": playwright
-                }
-
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "qr_image": screenshot_base64,
-                    "message": "请在页面中找到二维码并使用抖音 App 扫描登录"
-                }
-
-        except Exception as e:
-            logger.error(f"Failed to start login session: {e}")
-            await self.cleanup()
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "启动登录会话失败，请确保服务器已安装 Playwright 浏览器"
-            }
+        # All retries failed
+        logger.error(f"Failed to start login session after {max_retries} attempts: {last_error}")
+        return {
+            "success": False,
+            "error": str(last_error) if last_error else "Unknown error",
+            "message": "启动登录会话失败，请确保服务器已安装 Playwright 浏览器并配置了 xvfb 虚拟显示"
+        }
 
     async def _capture_qr_code(self) -> Optional[str]:
-        """Capture QR code image from the page."""
+        """
+        Capture QR code image from the page using MediaCrawler's proven selectors.
+        Returns base64-encoded image data.
+        """
         try:
-            # Try different selectors for QR code
-            selectors = [
-                "div.qrcode-image img",
-                "div.web-login-scan-code img",
-                "img[alt*='二维码']",
-                "img[src*='qrcode']",
-                "canvas.qrcode",
-                "div[class*='qrcode'] img",
-                "div[class*='QRCode'] img",
-                "#qrcode img",
-                "div.login-qrcode img"
-            ]
-
-            for selector in selectors:
+            # Try each selector in order of reliability
+            for selector in self.QR_CODE_SELECTORS:
                 try:
-                    element = await self.page.query_selector(selector)
+                    logger.debug(f"Trying QR code selector: {selector}")
+
+                    # Wait for element with timeout
+                    if selector.startswith("xpath="):
+                        element = await self.page.locator(selector).first.element_handle(timeout=3000)
+                    else:
+                        element = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+
                     if element:
-                        # Get bounding box
+                        # Get bounding box to validate element size
                         box = await element.bounding_box()
-                        if box and box["width"] > 50 and box["height"] > 50:
+                        if box and box["width"] > 80 and box["height"] > 80:
+                            logger.info(f"Found QR code with selector: {selector}, size: {box['width']}x{box['height']}")
                             # Screenshot the element
                             screenshot = await element.screenshot()
                             return base64.b64encode(screenshot).decode()
+                        else:
+                            logger.debug(f"Element too small: {box}")
                 except Exception as e:
                     logger.debug(f"Selector {selector} failed: {e}")
                     continue
 
-            # If no specific QR code found, try to find any reasonably sized image
+            # Fallback: Try to find any reasonably sized image that might be QR code
+            logger.debug("Trying fallback: searching for QR-like images")
             images = await self.page.query_selector_all("img")
             for img in images:
                 try:
                     box = await img.bounding_box()
                     if box and 100 < box["width"] < 400 and 100 < box["height"] < 400:
-                        src = await img.get_attribute("src")
-                        if src and ("qr" in src.lower() or "code" in src.lower() or "login" in src.lower()):
+                        src = await img.get_attribute("src") or ""
+                        alt = await img.get_attribute("alt") or ""
+                        # Check if this looks like a QR code
+                        if any(keyword in (src + alt).lower() for keyword in ["qr", "code", "login", "scan", "二维码"]):
+                            logger.info(f"Found QR-like image with size: {box['width']}x{box['height']}")
                             screenshot = await img.screenshot()
                             return base64.b64encode(screenshot).decode()
-                except:
+                except Exception as e:
+                    logger.debug(f"Error checking image: {e}")
                     continue
 
+            logger.warning("Could not find QR code on page")
             return None
 
         except Exception as e:
@@ -184,7 +362,14 @@ class QRCodeLoginService:
             return None
 
     async def check_login_status(self, session_id: str) -> Dict[str, Any]:
-        """Check if user has scanned and logged in."""
+        """
+        Check if user has scanned and logged in.
+
+        Uses MediaCrawler's proven login detection methods:
+        1. Check localStorage.HasUserLogin == "1"
+        2. Check LOGIN_STATUS cookie == "1"
+        3. Check for sessionid cookie presence
+        """
         session = login_sessions.get(session_id)
         if not session:
             return {"status": "expired", "message": "登录会话已过期"}
@@ -199,20 +384,39 @@ class QRCodeLoginService:
             return {"status": "error", "message": "登录会话异常"}
 
         try:
-            # Check for login success indicators
-            # Look for user avatar, nickname, or changed page content
+            is_logged_in = False
 
-            # Method 1: Check if cookie contains key login indicators
+            # Method 1: Check localStorage.HasUserLogin (MediaCrawler's primary method)
+            try:
+                local_storage = await service.page.evaluate("() => window.localStorage")
+                if local_storage and local_storage.get("HasUserLogin") == "1":
+                    logger.info("Login detected via localStorage.HasUserLogin")
+                    is_logged_in = True
+            except Exception as e:
+                logger.debug(f"localStorage check failed: {e}")
+
+            # Method 2: Check cookies
             cookies = await service.context.cookies()
             cookie_dict = {c["name"]: c["value"] for c in cookies}
 
-            # Douyin uses these cookies after login
-            login_cookies = ["sessionid", "sessionid_ss", "passport_csrf_token", "ttwid"]
-            has_login_cookie = any(c in cookie_dict for c in login_cookies if cookie_dict.get(c))
+            # Check LOGIN_STATUS cookie (MediaCrawler's secondary method)
+            if cookie_dict.get("LOGIN_STATUS") == "1":
+                logger.info("Login detected via LOGIN_STATUS cookie")
+                is_logged_in = True
 
-            if has_login_cookie and cookie_dict.get("sessionid"):
-                # User is logged in! Extract cookies
+            # Method 3: Check for sessionid cookie (essential for API calls)
+            if cookie_dict.get("sessionid"):
+                logger.info("Login detected via sessionid cookie")
+                is_logged_in = True
+
+            if is_logged_in:
+                # Build cookie string with essential cookies
                 cookie_string = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+
+                # Verify we have the essential cookies
+                missing_essential = [c for c in ESSENTIAL_COOKIES if c not in cookie_dict or not cookie_dict[c]]
+                if missing_essential:
+                    logger.warning(f"Missing some essential cookies: {missing_essential}")
 
                 # Update session status
                 session["status"] = "success"
@@ -229,18 +433,6 @@ class QRCodeLoginService:
                     "message": "登录成功！Cookie 已自动保存",
                     "cookie": cookie_string[:100] + "..." if len(cookie_string) > 100 else cookie_string
                 }
-
-            # Method 2: Check page content for login success
-            try:
-                # Check if page has navigated away from login or shows user info
-                current_url = service.page.url
-                page_content = await service.page.content()
-
-                if "login" not in current_url.lower() and ("头像" in page_content or "avatar" in page_content.lower()):
-                    # Might be logged in, check cookies again
-                    pass
-            except:
-                pass
 
             return {"status": "waiting", "message": "等待扫码..."}
 
