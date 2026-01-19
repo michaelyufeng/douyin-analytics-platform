@@ -154,13 +154,14 @@ export const statsApi = {
 
 // Auth API
 export const authApi = {
-  createQRCode: () => post<{
+  // QR code generation can take 60+ seconds, use extended timeout
+  createQRCode: () => api.post<{
     success: boolean
     session_id?: string
     qr_image?: string
     message: string
     error?: string
-  }>('/auth/qrcode/create'),
+  }>('/auth/qrcode/create', {}, { timeout: 120000 }).then(res => res.data),
   checkQRStatus: (sessionId: string) => get<{
     status: string
     message: string
