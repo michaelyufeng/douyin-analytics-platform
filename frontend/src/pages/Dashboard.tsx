@@ -1,22 +1,29 @@
 import { useState, useEffect } from 'react'
-import { Row, Col, Card, Statistic, List, Tag, Input, Button, message, Spin } from 'antd'
+import { Row, Col, Card, Statistic, List, Tag, Input, Button, message, Spin, Empty } from 'antd'
 import {
   UserOutlined,
   PlayCircleOutlined,
   FireOutlined,
   ScheduleOutlined,
   SearchOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
+  VideoCameraOutlined,
+  MessageOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { rankingApi, searchApi } from '../services/api'
-import { formatNumber } from '../utils/format'
+import { rankingApi, searchApi, statsApi } from '../services/api'
+import { formatNumber, formatTimeAgo } from '../utils/format'
 
 interface HotItem {
   word: string
   hot_value: number
   position: number
+}
+
+interface Activity {
+  type: string
+  text: string
+  time: string | null
+  icon: string
 }
 
 interface StatCardProps {
@@ -25,55 +32,95 @@ interface StatCardProps {
   icon: React.ReactNode
   color: string
   suffix?: string
+  loading?: boolean
 }
 
-const StatCard = ({ title, value, icon, color, suffix }: StatCardProps) => (
+const StatCard = ({ title, value, icon, color, suffix, loading }: StatCardProps) => (
   <Card className="hover-card" bordered={false}>
-    <Row align="middle" gutter={16}>
-      <Col>
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            background: color,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 24,
-            color: '#fff',
-          }}
-        >
-          {icon}
-        </div>
-      </Col>
-      <Col flex={1}>
-        <Statistic
-          title={title}
-          value={value}
-          suffix={suffix}
-          valueStyle={{ fontSize: 24, fontWeight: 600 }}
-        />
-      </Col>
-    </Row>
+    <Spin spinning={loading}>
+      <Row align="middle" gutter={16}>
+        <Col>
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              background: color,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 24,
+              color: '#fff',
+            }}
+          >
+            {icon}
+          </div>
+        </Col>
+        <Col flex={1}>
+          <Statistic
+            title={title}
+            value={value}
+            suffix={suffix}
+            valueStyle={{ fontSize: 24, fontWeight: 600 }}
+          />
+        </Col>
+      </Row>
+    </Spin>
   </Card>
 )
+
+const getActivityIcon = (iconType: string) => {
+  switch (iconType) {
+    case 'user':
+      return <UserOutlined style={{ color: '#1890ff' }} />
+    case 'video':
+      return <VideoCameraOutlined style={{ color: '#52c41a' }} />
+    case 'task':
+      return <ScheduleOutlined style={{ color: '#faad14' }} />
+    default:
+      return <MessageOutlined style={{ color: '#999' }} />
+  }
+}
 
 const Dashboard = () => {
   const navigate = useNavigate()
   const [searchValue, setSearchValue] = useState('')
   const [hotList, setHotList] = useState<HotItem[]>([])
+  const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [activitiesLoading, setActivitiesLoading] = useState(false)
   const [stats, setStats] = useState({
-    users: 128,
-    videos: 1024,
-    tasks: 12,
-    hotItems: 50,
+    users: 0,
+    videos: 0,
+    tasks: 0,
+    comments: 0,
   })
 
   useEffect(() => {
+    fetchStats()
     fetchHotList()
+    fetchActivities()
   }, [])
+
+  const fetchStats = async () => {
+    setStatsLoading(true)
+    try {
+      const data = await statsApi.getStatistics()
+      if (data) {
+        setStats({
+          users: data.users || 0,
+          videos: data.videos || 0,
+          tasks: data.tasks || 0,
+          comments: data.comments || 0,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch stats:', error)
+    } finally {
+      setStatsLoading(false)
+    }
+  }
 
   const fetchHotList = async () => {
     setLoading(true)
@@ -83,16 +130,25 @@ const Dashboard = () => {
         setHotList(data.trends.slice(0, 20))
       }
     } catch (error) {
-      // Use mock data if API fails
-      setHotList([
-        { word: '热搜话题1', hot_value: 1234567, position: 1 },
-        { word: '热搜话题2', hot_value: 987654, position: 2 },
-        { word: '热搜话题3', hot_value: 876543, position: 3 },
-        { word: '热搜话题4', hot_value: 765432, position: 4 },
-        { word: '热搜话题5', hot_value: 654321, position: 5 },
-      ])
+      console.error('Failed to fetch hot list:', error)
+      setHotList([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchActivities = async () => {
+    setActivitiesLoading(true)
+    try {
+      const data = await statsApi.getRecentActivities(10)
+      if (data?.activities) {
+        setActivities(data.activities)
+      }
+    } catch (error) {
+      console.error('Failed to fetch activities:', error)
+      setActivities([])
+    } finally {
+      setActivitiesLoading(false)
     }
   }
 
@@ -153,6 +209,7 @@ const Dashboard = () => {
             value={stats.users}
             icon={<UserOutlined />}
             color="#1890ff"
+            loading={statsLoading}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -161,6 +218,7 @@ const Dashboard = () => {
             value={stats.videos}
             icon={<PlayCircleOutlined />}
             color="#52c41a"
+            loading={statsLoading}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -169,14 +227,16 @@ const Dashboard = () => {
             value={stats.tasks}
             icon={<ScheduleOutlined />}
             color="#faad14"
+            loading={statsLoading}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard
-            title="今日热榜"
-            value={stats.hotItems}
-            icon={<FireOutlined />}
+            title="已采集评论"
+            value={stats.comments}
+            icon={<MessageOutlined />}
             color="#f5222d"
+            loading={statsLoading}
           />
         </Col>
       </Row>
@@ -199,37 +259,41 @@ const Dashboard = () => {
             }
           >
             <Spin spinning={loading}>
-              <List
-                dataSource={hotList}
-                renderItem={(item, index) => (
-                  <List.Item
-                    actions={[
-                      <span key="hot" style={{ color: '#999' }}>
-                        {formatNumber(item.hot_value)} 热度
-                      </span>,
-                    ]}
-                  >
-                    <List.Item.Meta
-                      avatar={
-                        <Tag
-                          color={index < 3 ? '#f5222d' : index < 6 ? '#fa8c16' : 'default'}
-                          style={{ width: 24, textAlign: 'center' }}
-                        >
-                          {index + 1}
-                        </Tag>
-                      }
-                      title={
-                        <a
-                          onClick={() => navigate('/video', { state: { keyword: item.word } })}
-                          style={{ color: 'inherit' }}
-                        >
-                          {item.word}
-                        </a>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
+              {hotList.length > 0 ? (
+                <List
+                  dataSource={hotList}
+                  renderItem={(item, index) => (
+                    <List.Item
+                      actions={[
+                        <span key="hot" style={{ color: '#999' }}>
+                          {formatNumber(item.hot_value)} 热度
+                        </span>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        avatar={
+                          <Tag
+                            color={index < 3 ? '#f5222d' : index < 6 ? '#fa8c16' : 'default'}
+                            style={{ width: 24, textAlign: 'center' }}
+                          >
+                            {index + 1}
+                          </Tag>
+                        }
+                        title={
+                          <a
+                            onClick={() => navigate('/video', { state: { keyword: item.word } })}
+                            style={{ color: 'inherit' }}
+                          >
+                            {item.word}
+                          </a>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              ) : (
+                <Empty description="暂无热榜数据，请配置抖音Cookie后使用" />
+              )}
             </Spin>
           </Card>
         </Col>
@@ -277,26 +341,29 @@ const Dashboard = () => {
           </Card>
 
           <Card title="最近动态" bordered={false}>
-            <List
-              size="small"
-              dataSource={[
-                { text: '用户 @xxx 粉丝数增长 1.2万', time: '2分钟前', type: 'up' },
-                { text: '视频 #xxx 播放量突破 100万', time: '15分钟前', type: 'up' },
-                { text: '监控任务 #3 执行完成', time: '1小时前', type: 'task' },
-                { text: '用户 @yyy 粉丝数下降 0.5万', time: '2小时前', type: 'down' },
-              ]}
-              renderItem={(item) => (
-                <List.Item>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {item.type === 'up' && <ArrowUpOutlined style={{ color: '#52c41a' }} />}
-                    {item.type === 'down' && <ArrowDownOutlined style={{ color: '#f5222d' }} />}
-                    {item.type === 'task' && <ScheduleOutlined style={{ color: '#1890ff' }} />}
-                    <span>{item.text}</span>
-                  </div>
-                  <span style={{ color: '#999', fontSize: 12 }}>{item.time}</span>
-                </List.Item>
+            <Spin spinning={activitiesLoading}>
+              {activities.length > 0 ? (
+                <List
+                  size="small"
+                  dataSource={activities}
+                  renderItem={(item) => (
+                    <List.Item>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                        {getActivityIcon(item.icon)}
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.text}
+                        </span>
+                      </div>
+                      <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
+                        {item.time ? formatTimeAgo(item.time) : ''}
+                      </span>
+                    </List.Item>
+                  )}
+                />
+              ) : (
+                <Empty description="暂无动态，开始采集数据后这里会显示最近活动" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               )}
-            />
+            </Spin>
           </Card>
         </Col>
       </Row>

@@ -138,4 +138,11 @@ export const analysisApi = {
   getReport: (reportId: number) => api.get(`/analysis/report/${reportId}`),
 }
 
+// Stats API
+export const statsApi = {
+  getStatistics: () => api.get('/stats'),
+  getRecentActivities: (limit = 10) => api.get('/stats/recent', { params: { limit } }),
+  getDataTrends: (days = 7) => api.get('/stats/trends', { params: { days } }),
+}
+
 export default api

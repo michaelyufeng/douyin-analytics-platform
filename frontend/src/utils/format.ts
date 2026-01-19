@@ -26,6 +26,11 @@ export const formatRelativeTime = (date: string | number | Date): string => {
 }
 
 /**
+ * Alias for formatRelativeTime
+ */
+export const formatTimeAgo = formatRelativeTime
+
+/**
  * Format date to standard format
  */
 export const formatDate = (date: string | number | Date, format = 'YYYY-MM-DD HH:mm:ss'): string => {
