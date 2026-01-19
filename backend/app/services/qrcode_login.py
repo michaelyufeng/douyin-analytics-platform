@@ -152,22 +152,44 @@ class QRCodeLoginService:
 
         Uses headless=False with xvfb virtual display and comprehensive
         anti-detection measures to avoid being blocked by Douyin.
+        Falls back to headless mode if no display is available.
         """
         last_error = None
+
+        # Check if DISPLAY is available (for non-headless mode)
+        display = os.environ.get('DISPLAY')
+        use_headless = display is None
+
+        # Try to set DISPLAY if Xvfb might be running on :99
+        if use_headless:
+            # Check if Xvfb is running on :99
+            try:
+                import subprocess
+                result = subprocess.run(['pgrep', '-x', 'Xvfb'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    os.environ['DISPLAY'] = ':99'
+                    use_headless = False
+                    logger.info("Detected Xvfb running, setting DISPLAY=:99")
+            except Exception:
+                pass
+
+        if use_headless:
+            logger.warning("No display available, falling back to headless mode (may be detected by Douyin)")
+        else:
+            logger.info(f"Using display: {os.environ.get('DISPLAY')}")
 
         for attempt in range(max_retries):
             try:
                 from playwright.async_api import async_playwright
 
-                logger.info(f"Starting QR code login session: {session_id} (attempt {attempt + 1}/{max_retries})")
+                logger.info(f"Starting QR code login session: {session_id} (attempt {attempt + 1}/{max_retries}, headless={use_headless})")
 
                 # Initialize Playwright
                 playwright = await async_playwright().start()
 
                 # Launch browser with anti-detection configuration
-                # Use headless=False with xvfb virtual display for better anti-detection
                 self.browser = await playwright.chromium.launch(
-                    headless=False,  # Use real browser with xvfb virtual display
+                    headless=use_headless,
                     args=[
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
