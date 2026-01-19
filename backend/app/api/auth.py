@@ -21,8 +21,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Path to the local login scripts
-SCRIPT_PATH = Path(__file__).parent.parent.parent / "scripts" / "get_cookie.py"
-SCRIPT_AUTO_PATH = Path(__file__).parent.parent.parent / "scripts" / "get_cookie_auto.py"
+# auth.py is at backend/app/api/auth.py, scripts are at project_root/scripts/
+SCRIPT_PATH = Path(__file__).parent.parent.parent.parent / "scripts" / "get_cookie.py"
+SCRIPT_AUTO_PATH = Path(__file__).parent.parent.parent.parent / "scripts" / "get_cookie_auto.py"
 
 # Essential cookies that should be present for a valid session
 ESSENTIAL_COOKIES = ["sessionid", "sessionid_ss", "ttwid", "LOGIN_STATUS"]
