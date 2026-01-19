@@ -127,17 +127,27 @@ console.log('Anti-detection stealth script loaded');
 class QRCodeLoginService:
     """Service for handling QR code login flow."""
 
-    DOUYIN_LOGIN_URL = "https://www.douyin.com/"
+    # Use the creator platform login page which has a cleaner QR code interface
+    DOUYIN_LOGIN_URL = "https://creator.douyin.com/"
 
-    # MediaCrawler's proven QR code selector - this is the most reliable selector
+    # QR code selectors for various Douyin login pages
     QR_CODE_SELECTORS = [
-        "xpath=//div[@id='animate_qrcode_container']//img",  # MediaCrawler's selector
+        # Creator platform selectors
         "xpath=//div[contains(@class, 'qrcode')]//img",
+        "xpath=//div[contains(@class, 'QRCode')]//img",
+        "xpath=//img[contains(@class, 'qrcode')]",
+        "xpath=//img[contains(@class, 'QRCode')]",
+        "xpath=//canvas[contains(@class, 'qrcode')]",
+        # MediaCrawler's selector
+        "xpath=//div[@id='animate_qrcode_container']//img",
         "xpath=//img[contains(@src, 'qrcode')]",
         "div#animate_qrcode_container img",
         "div.web-login-scan-code__content img",
         "div[class*='qrcode'] img",
+        "div[class*='QRCode'] img",
         "img[alt*='二维码']",
+        # Canvas-based QR codes
+        "canvas",
     ]
 
     def __init__(self):
