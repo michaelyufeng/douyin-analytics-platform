@@ -242,10 +242,17 @@ class QRCodeLoginService:
 
                 # Navigate to Douyin
                 logger.info("Navigating to Douyin...")
-                await self.page.goto(self.DOUYIN_LOGIN_URL, wait_until="networkidle", timeout=60000)
+                # Use domcontentloaded instead of networkidle to avoid timeout on long-loading resources
+                await self.page.goto(self.DOUYIN_LOGIN_URL, wait_until="domcontentloaded", timeout=30000)
 
-                # Wait a bit for page to stabilize
-                await asyncio.sleep(2)
+                # Wait for page to stabilize and load dynamic content
+                await asyncio.sleep(3)
+
+                # Wait for the page to be ready by checking for common elements
+                try:
+                    await self.page.wait_for_selector("body", state="attached", timeout=5000)
+                except Exception:
+                    pass
 
                 # Try to click login button if exists
                 try:
