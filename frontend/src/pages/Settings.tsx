@@ -1,12 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import { Card, Form, Input, Button, Switch, InputNumber, Divider, message, Row, Col, Modal, Spin, Tag, Alert } from 'antd'
-import { SaveOutlined, QrcodeOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Card, Form, Input, Button, Switch, InputNumber, Divider, message, Row, Col, Modal, Spin, Tag, Alert, Tabs, Typography, Steps } from 'antd'
+import { SaveOutlined, QrcodeOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, DownloadOutlined, CodeOutlined, CopyOutlined, CloudUploadOutlined, GlobalOutlined } from '@ant-design/icons'
 import { authApi } from '../services/api'
+
+const { Text, Paragraph } = Typography
+const { TextArea } = Input
 
 interface CookieStatus {
   has_cookie: boolean
   cookie_preview: string | null
   message: string
+}
+
+interface ConsoleCommandData {
+  command: string
+  instructions: string[]
 }
 
 const Settings = () => {
@@ -19,10 +27,16 @@ const Settings = () => {
   const [loginStatus, setLoginStatus] = useState<string>('idle')
   const [statusMessage, setStatusMessage] = useState<string>('')
   const [cookieStatus, setCookieStatus] = useState<CookieStatus | null>(null)
+  const [consoleCommand, setConsoleCommand] = useState<ConsoleCommandData | null>(null)
+  const [activeTab, setActiveTab] = useState<string>('qrcode')
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Get server URL from current location
+  const serverUrl = `${window.location.protocol}//${window.location.host}`
 
   useEffect(() => {
     checkCookieStatus()
+    loadConsoleCommand()
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current)
@@ -36,6 +50,15 @@ const Settings = () => {
       setCookieStatus(status)
     } catch (error) {
       console.error('Failed to check cookie status:', error)
+    }
+  }
+
+  const loadConsoleCommand = async () => {
+    try {
+      const data = await authApi.getConsoleCommand()
+      setConsoleCommand(data)
+    } catch (error) {
+      console.error('Failed to load console command:', error)
     }
   }
 
@@ -156,6 +179,218 @@ const Settings = () => {
     }
   }
 
+  const downloadScript = async () => {
+    try {
+      const scriptContent = await authApi.getScript()
+      const blob = new Blob([scriptContent], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'get_cookie.py'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      message.success('脚本下载成功')
+    } catch (error) {
+      message.error('下载失败，请重试')
+      console.error('Download error:', error)
+    }
+  }
+
+  const downloadScriptAuto = async () => {
+    try {
+      const scriptContent = await authApi.getScriptAuto()
+      const blob = new Blob([scriptContent], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'get_cookie_auto.py'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      message.success('脚本下载成功')
+    } catch (error) {
+      message.error('下载失败，请重试')
+      console.error('Download error:', error)
+    }
+  }
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success('已复制到剪贴板')
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
+  }
+
+  // Tab content for QR Code login
+  const QRCodeTabContent = (
+    <div>
+      <Alert
+        type="info"
+        message="在线扫码登录"
+        description="服务器会生成二维码，您用抖音 App 扫描后自动获取 Cookie。如果服务器无法正确显示二维码，请使用下方的备选方案。"
+        style={{ marginBottom: 16 }}
+      />
+      <Button
+        type="primary"
+        icon={<QrcodeOutlined />}
+        onClick={() => {
+          setQrModalOpen(true)
+          startQRLogin()
+        }}
+        style={{ width: '100%' }}
+        size="large"
+      >
+        扫码登录抖音
+      </Button>
+    </div>
+  )
+
+  // Tab content for Local Script (Auto Upload Version)
+  const LocalScriptTabContent = (
+    <div>
+      <Alert
+        type="success"
+        message="推荐方式 - 本地脚本登录 (自动上传)"
+        description="下载脚本到本地运行，扫码后 Cookie 会自动上传到服务器，无需手动复制粘贴。"
+        style={{ marginBottom: 16 }}
+      />
+
+      {/* Server URL Display */}
+      <div style={{
+        background: '#f5f5f5',
+        padding: 12,
+        borderRadius: 4,
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8
+      }}>
+        <GlobalOutlined style={{ color: '#1890ff' }} />
+        <Text strong>服务器地址:</Text>
+        <Text code copyable>{serverUrl}</Text>
+      </div>
+
+      <Steps
+        direction="vertical"
+        size="small"
+        current={-1}
+        items={[
+          { title: '下载脚本', description: '点击下方按钮下载 get_cookie_auto.py' },
+          { title: '安装依赖', description: <Text code>pip install playwright httpx && playwright install chromium</Text> },
+          { title: '运行脚本', description: <span>运行: <Text code copyable={{ text: `python get_cookie_auto.py --server ${serverUrl}` }}>python get_cookie_auto.py --server {serverUrl}</Text></span> },
+          { title: '扫码登录', description: '用抖音 App 扫描浏览器中的二维码' },
+          { title: '自动完成', description: '登录成功后 Cookie 会自动上传到服务器' },
+        ]}
+        style={{ marginBottom: 16 }}
+      />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Button
+          type="primary"
+          icon={<CloudUploadOutlined />}
+          onClick={downloadScriptAuto}
+          style={{ flex: 1 }}
+          size="large"
+        >
+          下载自动上传脚本
+        </Button>
+        <Button
+          icon={<DownloadOutlined />}
+          onClick={downloadScript}
+          size="large"
+          title="下载基础版本 (需手动复制粘贴)"
+        >
+          基础版
+        </Button>
+      </div>
+    </div>
+  )
+
+  // Tab content for Browser Console
+  const ConsoleTabContent = (
+    <div>
+      <Alert
+        type="warning"
+        message="浏览器控制台方式"
+        description="如果您已经在浏览器中登录了抖音，可以使用控制台命令快速提取 Cookie。"
+        style={{ marginBottom: 16 }}
+      />
+      {consoleCommand && (
+        <>
+          <Steps
+            direction="vertical"
+            size="small"
+            current={-1}
+            items={consoleCommand.instructions.map((instruction, index) => ({
+              title: `步骤 ${index + 1}`,
+              description: instruction,
+            }))}
+            style={{ marginBottom: 16 }}
+          />
+          <div style={{ marginBottom: 16 }}>
+            <Text strong>控制台命令：</Text>
+            <div style={{
+              background: '#1e1e1e',
+              padding: 12,
+              borderRadius: 4,
+              marginTop: 8,
+              position: 'relative'
+            }}>
+              <Paragraph
+                style={{
+                  color: '#d4d4d4',
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all'
+                }}
+              >
+                {consoleCommand.command}
+              </Paragraph>
+              <Button
+                icon={<CopyOutlined />}
+                size="small"
+                onClick={() => copyToClipboard(consoleCommand.command)}
+                style={{ position: 'absolute', top: 8, right: 8 }}
+              >
+                复制
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  // Tab content for Manual Input
+  const ManualTabContent = (
+    <div>
+      <Alert
+        type="info"
+        message="手动粘贴 Cookie"
+        description="从浏览器开发者工具中复制 Cookie，然后粘贴到下方输入框。"
+        style={{ marginBottom: 16 }}
+      />
+      <Steps
+        direction="vertical"
+        size="small"
+        current={-1}
+        items={[
+          { title: '打开抖音', description: '在浏览器中访问 https://www.douyin.com 并登录' },
+          { title: '打开开发者工具', description: '按 F12 打开开发者工具' },
+          { title: '找到 Cookie', description: '切换到 Network 标签，刷新页面，点击任意请求查看 Headers 中的 Cookie' },
+          { title: '复制 Cookie', description: '复制完整的 Cookie 字符串' },
+        ]}
+        style={{ marginBottom: 16 }}
+      />
+    </div>
+  )
+
   return (
     <div>
       <h2 style={{ marginBottom: 24 }}>系统设置</h2>
@@ -193,33 +428,62 @@ const Settings = () => {
                 <Alert
                   type={cookieStatus.has_cookie ? 'success' : 'warning'}
                   message={cookieStatus.message}
-                  description={cookieStatus.cookie_preview ? `当前 Cookie: ${cookieStatus.cookie_preview}` : '请通过扫码登录或手动粘贴 Cookie'}
+                  description={cookieStatus.cookie_preview ? `当前 Cookie: ${cookieStatus.cookie_preview}` : '请通过以下方式获取 Cookie'}
                   style={{ marginBottom: 16 }}
                 />
               )}
 
-              {/* QR Code Login Button */}
-              <Button
-                type="primary"
-                icon={<QrcodeOutlined />}
-                onClick={() => {
-                  setQrModalOpen(true)
-                  startQRLogin()
-                }}
-                style={{ marginBottom: 16, width: '100%' }}
-                size="large"
-              >
-                扫码登录抖音
-              </Button>
+              {/* Cookie Acquisition Methods */}
+              <Tabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                items={[
+                  {
+                    key: 'script',
+                    label: (
+                      <span>
+                        <CodeOutlined />
+                        本地脚本 (推荐)
+                      </span>
+                    ),
+                    children: LocalScriptTabContent,
+                  },
+                  {
+                    key: 'qrcode',
+                    label: (
+                      <span>
+                        <QrcodeOutlined />
+                        在线扫码
+                      </span>
+                    ),
+                    children: QRCodeTabContent,
+                  },
+                  {
+                    key: 'console',
+                    label: (
+                      <span>
+                        <CodeOutlined />
+                        控制台命令
+                      </span>
+                    ),
+                    children: ConsoleTabContent,
+                  },
+                  {
+                    key: 'manual',
+                    label: '手动粘贴',
+                    children: ManualTabContent,
+                  },
+                ]}
+              />
 
-              <Divider>或手动配置</Divider>
+              <Divider>Cookie 输入</Divider>
 
               <Form.Item
                 name="cookie"
                 label="抖音 Cookie"
-                extra="从浏览器开发者工具 (F12 -> Network -> 任意请求的 Headers) 中复制 Cookie"
+                extra="将获取到的 Cookie 粘贴到此处"
               >
-                <Input.TextArea rows={4} placeholder="粘贴抖音 Cookie..." />
+                <TextArea rows={4} placeholder="粘贴抖音 Cookie..." />
               </Form.Item>
 
               <Button type="default" htmlType="submit" loading={loading} style={{ width: '100%' }}>
@@ -257,13 +521,29 @@ const Settings = () => {
             </Card>
 
             <Card title="使用说明" bordered={false}>
-              <ol style={{ paddingLeft: 20, margin: 0, lineHeight: 2 }}>
-                <li>点击「扫码登录抖音」按钮</li>
-                <li>使用抖音 App 扫描显示的二维码</li>
-                <li>在手机上确认登录</li>
-                <li>系统会自动获取并保存 Cookie</li>
-                <li>如扫码失败，可手动从浏览器复制 Cookie</li>
-              </ol>
+              <Alert
+                type="info"
+                message="Cookie 获取方式说明"
+                description={
+                  <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
+                    <li><strong>本地脚本 (推荐)</strong>: 最可靠，扫码后自动上传到服务器</li>
+                    <li><strong>在线扫码</strong>: 方便快捷，但服务器端可能受限</li>
+                    <li><strong>控制台命令</strong>: 适合已登录用户快速提取</li>
+                    <li><strong>手动粘贴</strong>: 通用方式，需要手动操作</li>
+                  </ul>
+                }
+                style={{ marginBottom: 16 }}
+              />
+              <Alert
+                type="warning"
+                message="远程服务器提示"
+                description={
+                  <div>
+                    <p style={{ margin: '4px 0' }}>如果程序部署在远程服务器上，服务器端二维码可能无法正常显示。</p>
+                    <p style={{ margin: '4px 0' }}>请使用 <strong>本地脚本</strong> 方式：在本地电脑运行脚本扫码，Cookie 会自动上传到服务器。</p>
+                  </div>
+                }
+              />
             </Card>
           </Col>
         </Row>
@@ -333,6 +613,13 @@ const Settings = () => {
                 <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
                   请使用抖音 App 扫描上方二维码
                 </div>
+              )}
+              {(loginStatus === 'error' || loginStatus === 'expired') && (
+                <Alert
+                  type="warning"
+                  message="如果扫码失败，建议使用「本地脚本」方式获取 Cookie"
+                  style={{ marginTop: 16, textAlign: 'left' }}
+                />
               )}
             </>
           ) : (

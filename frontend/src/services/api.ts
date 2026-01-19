@@ -170,12 +170,25 @@ export const authApi = {
   saveCookie: (cookie: string) => post<{
     success: boolean
     message: string
+    validation?: {
+      is_valid: boolean
+      has_essential: boolean
+      missing_cookies: string[]
+      cookie_count: number
+      warnings: string[]
+    }
   }>('/auth/cookie/save', { cookie }),
   getCookieStatus: () => get<{
     has_cookie: boolean
     cookie_preview: string | null
     message: string
   }>('/auth/cookie/status'),
+  getScript: () => api.get('/auth/script', { responseType: 'text' }).then(res => res as unknown as string),
+  getScriptAuto: () => api.get('/auth/script-auto', { responseType: 'text' }).then(res => res as unknown as string),
+  getConsoleCommand: () => get<{
+    command: string
+    instructions: string[]
+  }>('/auth/console-command'),
 }
 
 export default api
