@@ -86,41 +86,65 @@ class QRCodeLoginService:
                 await self.page.screenshot(path=f"/tmp/step1_creator_{session_id}.png")
                 logger.info("Step 1: Page loaded")
 
-                # Click "我是创作者" button if visible (creator.douyin.com specific)
-                try:
-                    creator_btn = self.page.locator('text=我是创作者')
-                    if await creator_btn.count() > 0:
-                        await creator_btn.first.click(timeout=5000)
-                        logger.info("Clicked '我是创作者' button")
-                        await asyncio.sleep(3)
-                except Exception as e:
-                    logger.debug(f"No creator button: {e}")
+                # Click "我是创作者" button/tab using JavaScript (more reliable)
+                clicked_creator = await self.page.evaluate("""() => {
+                    const els = document.querySelectorAll('*');
+                    for (const el of els) {
+                        const text = el.innerText || el.textContent || '';
+                        if (text.trim() === '我是创作者' && el.offsetParent !== null) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if clicked_creator:
+                    logger.info("Clicked '我是创作者' via JS")
+                    await asyncio.sleep(3)
 
-                # Try to find login button
-                try:
-                    login_btns = self.page.locator('text=登录')
-                    if await login_btns.count() > 0:
-                        await login_btns.first.click(timeout=5000)
-                        logger.info("Clicked login button")
-                        await asyncio.sleep(3)
-                except Exception as e:
-                    logger.debug(f"No login button needed: {e}")
+                # Click "扫码登录" tab using JavaScript (this triggers QR code loading)
+                clicked_qr = await self.page.evaluate("""() => {
+                    const els = document.querySelectorAll('*');
+                    for (const el of els) {
+                        const text = el.innerText || el.textContent || '';
+                        if (text.trim() === '扫码登录' && el.offsetParent !== null && el.offsetWidth > 20) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if clicked_qr:
+                    logger.info("Clicked '扫码登录' tab via JS")
+                    await asyncio.sleep(3)
 
                 await self.page.screenshot(path=f"/tmp/step2_afterlogin_{session_id}.png")
 
-                # Look for QR code tab and click it
-                try:
-                    qr_tabs = self.page.locator('text=扫码登录')
-                    if await qr_tabs.count() > 0:
-                        await qr_tabs.first.click(timeout=3000)
-                        logger.info("Clicked QR tab")
-                        await asyncio.sleep(3)
-                except Exception as e:
-                    logger.debug(f"No QR tab: {e}")
-
-                # Wait extra time for QR code to load
+                # Wait for QR code to actually load - poll until canvas has content
                 logger.info("Waiting for QR code to load...")
-                await asyncio.sleep(5)
+                for wait_attempt in range(10):
+                    await asyncio.sleep(2)
+                    # Check if any canvas has actual content
+                    has_qr = await self.page.evaluate("""() => {
+                        const canvases = document.querySelectorAll('canvas');
+                        for (const canvas of canvases) {
+                            if (canvas.width > 100 && canvas.height > 100) {
+                                const ctx = canvas.getContext('2d');
+                                if (ctx) {
+                                    const data = ctx.getImageData(0, 0, 10, 10).data;
+                                    // Check if there's actual pixel data (not all zeros)
+                                    for (let i = 0; i < data.length; i++) {
+                                        if (data[i] !== 0 && data[i] !== 255) return true;
+                                    }
+                                }
+                            }
+                        }
+                        return false;
+                    }""")
+                    if has_qr:
+                        logger.info(f"QR code loaded after {(wait_attempt + 1) * 2} seconds")
+                        break
+                    logger.debug(f"QR not ready yet, waiting... ({wait_attempt + 1}/10)")
 
                 await self.page.screenshot(path=f"/tmp/step3_qrpage_{session_id}.png")
                 logger.info("Step 3: Looking for QR code")
