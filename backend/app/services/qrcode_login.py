@@ -182,56 +182,8 @@ class QRCodeLoginService:
     async def _capture_qr_code(self, session_id: str) -> Optional[str]:
         """Capture QR code image - must be actual QR code, not decorative images."""
         try:
-            # Wait for QR code image to appear with explicit wait
-            # QR codes on Douyin are typically rendered as canvas or as base64 images
-
-            # Method 1: Look for canvas elements (Douyin often renders QR as canvas)
-            logger.info("Looking for QR code canvas...")
-            canvases = await self.page.query_selector_all("canvas")
-            for canvas in canvases:
-                try:
-                    box = await canvas.bounding_box()
-                    # QR codes are typically 150-300px square
-                    if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
-                        ratio = box["width"] / box["height"]
-                        if 0.9 < ratio < 1.1:  # Must be nearly square
-                            logger.info(f"Found QR canvas: {box['width']:.0f}x{box['height']:.0f}")
-                            screenshot = await canvas.screenshot()
-                            return base64.b64encode(screenshot).decode()
-                except Exception:
-                    continue
-
-            # Method 2: Look for images inside QR code specific containers
-            logger.info("Looking for QR code in containers...")
-            qr_selectors = [
-                'div[class*="qrcode"] img',
-                'div[class*="QRCode"] img',
-                'div[class*="qr-code"] img',
-                'div[class*="scan"] img',
-                'div[class*="login-qr"] img',
-            ]
-
-            for selector in qr_selectors:
-                try:
-                    elements = self.page.locator(selector)
-                    count = await elements.count()
-                    for i in range(count):
-                        el = elements.nth(i)
-                        box = await el.bounding_box()
-                        if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
-                            ratio = box["width"] / box["height"]
-                            if 0.9 < ratio < 1.1:
-                                # Check if it's a real QR code (data:image with substantial size)
-                                src = await el.get_attribute("src") or ""
-                                if src.startswith("data:image") and len(src) > 1000:
-                                    logger.info(f"Found QR image: {selector}, {box['width']:.0f}x{box['height']:.0f}")
-                                    screenshot = await el.screenshot()
-                                    return base64.b64encode(screenshot).decode()
-                except Exception as e:
-                    logger.debug(f"Selector {selector} failed: {e}")
-
-            # Method 3: Find any image that looks like a QR code (large base64 data URI)
-            logger.info("Searching all images for QR code...")
+            # Method 1: Look for img elements with data:image src (most reliable for QR codes)
+            logger.info("Looking for QR code images...")
             images = await self.page.query_selector_all("img")
             for img in images:
                 try:
@@ -240,11 +192,70 @@ class QRCodeLoginService:
                         ratio = box["width"] / box["height"]
                         if 0.9 < ratio < 1.1:
                             src = await img.get_attribute("src") or ""
-                            # Real QR codes as base64 are typically > 1000 chars
-                            # Decorative icons are small
-                            if src.startswith("data:image") and len(src) > 1000:
-                                logger.info(f"Found QR by data URI: {box['width']:.0f}x{box['height']:.0f}, src length: {len(src)}")
+                            # Real QR codes as base64 PNG are typically > 2000 chars
+                            # The QR code we need should be a large data:image
+                            if src.startswith("data:image/png") and len(src) > 2000:
+                                logger.info(f"Found QR image: {box['width']:.0f}x{box['height']:.0f}, src length: {len(src)}")
                                 screenshot = await img.screenshot()
+                                return base64.b64encode(screenshot).decode()
+                except Exception:
+                    continue
+
+            # Method 2: Look for canvas that contains actual QR code (black/white pattern)
+            logger.info("Looking for QR code canvas...")
+            canvases = await self.page.query_selector_all("canvas")
+            for canvas in canvases:
+                try:
+                    box = await canvas.bounding_box()
+                    if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
+                        ratio = box["width"] / box["height"]
+                        if 0.9 < ratio < 1.1:
+                            # Check if canvas has QR-like content (black and white, not colorful)
+                            is_qr = await self.page.evaluate("""(canvas) => {
+                                const ctx = canvas.getContext('2d');
+                                if (!ctx) return false;
+                                const w = canvas.width, h = canvas.height;
+                                const data = ctx.getImageData(0, 0, w, h).data;
+                                let blackCount = 0, whiteCount = 0, colorCount = 0;
+                                for (let i = 0; i < data.length; i += 4) {
+                                    const r = data[i], g = data[i+1], b = data[i+2];
+                                    if (r < 50 && g < 50 && b < 50) blackCount++;
+                                    else if (r > 200 && g > 200 && b > 200) whiteCount++;
+                                    else colorCount++;
+                                }
+                                const total = w * h;
+                                // QR codes are mostly black and white with very few colors
+                                return (blackCount + whiteCount) / total > 0.9 && colorCount / total < 0.1;
+                            }""", canvas)
+                            if is_qr:
+                                logger.info(f"Found QR canvas (verified): {box['width']:.0f}x{box['height']:.0f}")
+                                screenshot = await canvas.screenshot()
+                                return base64.b64encode(screenshot).decode()
+                            else:
+                                logger.debug(f"Canvas {box['width']:.0f}x{box['height']:.0f} is decorative, skipping")
+                except Exception as e:
+                    logger.debug(f"Canvas check failed: {e}")
+                    continue
+
+            # Method 3: Look for img in QR-specific containers
+            logger.info("Looking for QR code in containers...")
+            qr_selectors = [
+                'div[class*="qrcode"] img',
+                'div[class*="QRCode"] img',
+                'div[class*="qr-code"] img',
+            ]
+            for selector in qr_selectors:
+                try:
+                    elements = self.page.locator(selector)
+                    count = await elements.count()
+                    for i in range(count):
+                        el = elements.nth(i)
+                        box = await el.bounding_box()
+                        if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
+                            src = await el.get_attribute("src") or ""
+                            if src.startswith("data:image") and len(src) > 2000:
+                                logger.info(f"Found QR in container: {selector}")
+                                screenshot = await el.screenshot()
                                 return base64.b64encode(screenshot).decode()
                 except Exception:
                     continue
