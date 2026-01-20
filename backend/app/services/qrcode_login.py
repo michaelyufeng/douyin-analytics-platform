@@ -86,8 +86,17 @@ class QRCodeLoginService:
                 await self.page.screenshot(path=f"/tmp/step1_creator_{session_id}.png")
                 logger.info("Step 1: Page loaded")
 
-                # On creator.douyin.com, the login page shows QR code directly or after clicking login
-                # Try to find login button first
+                # Click "我是创作者" button if visible (creator.douyin.com specific)
+                try:
+                    creator_btn = self.page.locator('text=我是创作者')
+                    if await creator_btn.count() > 0:
+                        await creator_btn.first.click(timeout=5000)
+                        logger.info("Clicked '我是创作者' button")
+                        await asyncio.sleep(3)
+                except Exception as e:
+                    logger.debug(f"No creator button: {e}")
+
+                # Try to find login button
                 try:
                     login_btns = self.page.locator('text=登录')
                     if await login_btns.count() > 0:
@@ -99,15 +108,19 @@ class QRCodeLoginService:
 
                 await self.page.screenshot(path=f"/tmp/step2_afterlogin_{session_id}.png")
 
-                # Look for QR code tab if exists
+                # Look for QR code tab and click it
                 try:
                     qr_tabs = self.page.locator('text=扫码登录')
                     if await qr_tabs.count() > 0:
                         await qr_tabs.first.click(timeout=3000)
                         logger.info("Clicked QR tab")
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(3)
                 except Exception as e:
                     logger.debug(f"No QR tab: {e}")
+
+                # Wait extra time for QR code to load
+                logger.info("Waiting for QR code to load...")
+                await asyncio.sleep(5)
 
                 await self.page.screenshot(path=f"/tmp/step3_qrpage_{session_id}.png")
                 logger.info("Step 3: Looking for QR code")
@@ -143,69 +156,76 @@ class QRCodeLoginService:
         return {"success": False, "error": str(last_error), "message": "启动登录会话失败"}
 
     async def _capture_qr_code(self, session_id: str) -> Optional[str]:
-        """Capture QR code image."""
+        """Capture QR code image - must be actual QR code, not decorative images."""
         try:
-            # Try specific selectors first
-            selectors = [
-                'img[class*="qrcode"]',
-                'img[class*="QRCode"]',
-                'img[class*="qr-code"]',
-                'div[class*="qrcode"] img',
-                'div[class*="QRCode"] img',
-                'div[class*="qr-code"] img',
-                'img[src*="qrcode"]',
-                'img[src*="data:image"]',
-            ]
+            # Wait for QR code image to appear with explicit wait
+            # QR codes on Douyin are typically rendered as canvas or as base64 images
 
-            for selector in selectors:
-                try:
-                    logger.debug(f"Trying: {selector}")
-                    elements = self.page.locator(selector)
-                    count = await elements.count()
-                    for i in range(count):
-                        el = elements.nth(i)
-                        box = await el.bounding_box()
-                        if box and 120 < box["width"] < 400 and 120 < box["height"] < 400:
-                            ratio = box["width"] / box["height"]
-                            if 0.8 < ratio < 1.2:
-                                logger.info(f"Found QR: {selector}, {box['width']}x{box['height']}")
-                                screenshot = await el.screenshot()
-                                return base64.b64encode(screenshot).decode()
-                except Exception as e:
-                    logger.debug(f"Selector failed: {e}")
-
-            # Fallback: find any square image
-            logger.info("Trying fallback image search...")
-            images = await self.page.query_selector_all("img")
-            for img in images:
-                try:
-                    box = await img.bounding_box()
-                    if box and 120 < box["width"] < 350 and 120 < box["height"] < 350:
-                        ratio = box["width"] / box["height"]
-                        if 0.85 < ratio < 1.15:
-                            src = await img.get_attribute("src") or ""
-                            if src.startswith("data:image") or "qr" in src.lower() or "code" in src.lower():
-                                logger.info(f"Found image QR: {box['width']}x{box['height']}")
-                                screenshot = await img.screenshot()
-                                return base64.b64encode(screenshot).decode()
-                except Exception:
-                    continue
-
-            # Try canvas
+            # Method 1: Look for canvas elements (Douyin often renders QR as canvas)
+            logger.info("Looking for QR code canvas...")
             canvases = await self.page.query_selector_all("canvas")
             for canvas in canvases:
                 try:
                     box = await canvas.bounding_box()
-                    if box and 120 < box["width"] < 350 and 120 < box["height"] < 350:
+                    # QR codes are typically 150-300px square
+                    if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
                         ratio = box["width"] / box["height"]
-                        if 0.85 < ratio < 1.15:
-                            logger.info(f"Found canvas QR: {box['width']}x{box['height']}")
+                        if 0.9 < ratio < 1.1:  # Must be nearly square
+                            logger.info(f"Found QR canvas: {box['width']:.0f}x{box['height']:.0f}")
                             screenshot = await canvas.screenshot()
                             return base64.b64encode(screenshot).decode()
                 except Exception:
                     continue
 
-            logger.warning("QR code not found")
+            # Method 2: Look for images inside QR code specific containers
+            logger.info("Looking for QR code in containers...")
+            qr_selectors = [
+                'div[class*="qrcode"] img',
+                'div[class*="QRCode"] img',
+                'div[class*="qr-code"] img',
+                'div[class*="scan"] img',
+                'div[class*="login-qr"] img',
+            ]
+
+            for selector in qr_selectors:
+                try:
+                    elements = self.page.locator(selector)
+                    count = await elements.count()
+                    for i in range(count):
+                        el = elements.nth(i)
+                        box = await el.bounding_box()
+                        if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
+                            ratio = box["width"] / box["height"]
+                            if 0.9 < ratio < 1.1:
+                                # Check if it's a real QR code (data:image with substantial size)
+                                src = await el.get_attribute("src") or ""
+                                if src.startswith("data:image") and len(src) > 1000:
+                                    logger.info(f"Found QR image: {selector}, {box['width']:.0f}x{box['height']:.0f}")
+                                    screenshot = await el.screenshot()
+                                    return base64.b64encode(screenshot).decode()
+                except Exception as e:
+                    logger.debug(f"Selector {selector} failed: {e}")
+
+            # Method 3: Find any image that looks like a QR code (large base64 data URI)
+            logger.info("Searching all images for QR code...")
+            images = await self.page.query_selector_all("img")
+            for img in images:
+                try:
+                    box = await img.bounding_box()
+                    if box and 140 < box["width"] < 320 and 140 < box["height"] < 320:
+                        ratio = box["width"] / box["height"]
+                        if 0.9 < ratio < 1.1:
+                            src = await img.get_attribute("src") or ""
+                            # Real QR codes as base64 are typically > 1000 chars
+                            # Decorative icons are small
+                            if src.startswith("data:image") and len(src) > 1000:
+                                logger.info(f"Found QR by data URI: {box['width']:.0f}x{box['height']:.0f}, src length: {len(src)}")
+                                screenshot = await img.screenshot()
+                                return base64.b64encode(screenshot).decode()
+                except Exception:
+                    continue
+
+            logger.warning("QR code not found - page may not have loaded QR code")
             return None
         except Exception as e:
             logger.error(f"Capture error: {e}")
