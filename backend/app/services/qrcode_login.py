@@ -1,5 +1,6 @@
 """
 QR Code Login Service for Douyin using Playwright.
+Uses creator.douyin.com which has QR code login.
 """
 import asyncio
 import base64
@@ -26,26 +27,13 @@ Object.defineProperty(navigator, "plugins", {
 });
 Object.defineProperty(navigator, "languages", {get: () => ["zh-CN","zh","en-US","en"], configurable: true});
 Object.defineProperty(navigator, "platform", {get: () => "Win32", configurable: true});
-Object.defineProperty(navigator, "hardwareConcurrency", {get: () => 8, configurable: true});
-Object.defineProperty(navigator, "deviceMemory", {get: () => 8, configurable: true});
 window.chrome = {runtime:{connect:()=>{},sendMessage:()=>{},onMessage:{addListener:()=>{}}},loadTimes:()=>{},csi:()=>{},app:{}};
 """
 
 
 class QRCodeLoginService:
-    DOUYIN_LOGIN_URL = "https://www.douyin.com/"
-
-    QR_CODE_SELECTORS = [
-        "div#login-pannel img",
-        'div[class*="qrcode"] img',
-        'div[class*="QRCode"] img',
-        "div.login-pannel img",
-        'div[class*="web-login"] img',
-        'div[class*="scan-code"] img',
-        'img[class*="qrcode"]',
-        'img[alt*="二维码"]',
-        "canvas",
-    ]
+    # Use creator platform - has QR code login
+    DOUYIN_LOGIN_URL = "https://creator.douyin.com/"
 
     def __init__(self):
         self.browser = None
@@ -91,58 +79,38 @@ class QRCodeLoginService:
                 await self.context.add_init_script(STEALTH_JS)
                 self.page = await self.context.new_page()
 
-                logger.info("Navigating to Douyin...")
+                logger.info("Navigating to Douyin Creator...")
                 await self.page.goto(self.DOUYIN_LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
 
-                # Save initial screenshot
-                await self.page.screenshot(path=f"/tmp/douyin_1_initial_{session_id}.png")
+                await self.page.screenshot(path=f"/tmp/step1_creator_{session_id}.png")
+                logger.info("Step 1: Page loaded")
 
-                # Click login button - try multiple methods
-                logger.info("Clicking login button...")
+                # On creator.douyin.com, the login page shows QR code directly or after clicking login
+                # Try to find login button first
                 try:
-                    # Method 1: Direct click on login button in header
-                    login_btn = self.page.locator("text=登录").first
-                    await login_btn.click(timeout=5000)
-                    logger.info("Clicked login via locator")
+                    login_btns = self.page.locator('text=登录')
+                    if await login_btns.count() > 0:
+                        await login_btns.first.click(timeout=5000)
+                        logger.info("Clicked login button")
+                        await asyncio.sleep(3)
                 except Exception as e:
-                    logger.debug(f"Locator click failed: {e}")
-                    # Method 2: JavaScript click
-                    await self.page.evaluate("""() => {
-                        const btns = document.querySelectorAll("button, div, span, a");
-                        for (const btn of btns) {
-                            if (btn.innerText === "登录" && btn.offsetParent !== null) {
-                                btn.click();
-                                return true;
-                            }
-                        }
-                        return false;
-                    }""")
-                    logger.info("Clicked login via JS")
+                    logger.debug(f"No login button needed: {e}")
 
-                await asyncio.sleep(3)
-                await self.page.screenshot(path=f"/tmp/douyin_2_after_login_{session_id}.png")
+                await self.page.screenshot(path=f"/tmp/step2_afterlogin_{session_id}.png")
 
-                # Try to click QR code tab
-                logger.info("Looking for QR tab...")
+                # Look for QR code tab if exists
                 try:
-                    qr_tab = self.page.locator("text=扫码登录").first
-                    await qr_tab.click(timeout=3000)
-                    logger.info("Clicked QR tab")
-                except Exception:
-                    await self.page.evaluate("""() => {
-                        const els = document.querySelectorAll("*");
-                        for (const el of els) {
-                            if (el.innerText && el.innerText.includes("扫码") && el.offsetParent) {
-                                el.click();
-                                return true;
-                            }
-                        }
-                        return false;
-                    }""")
+                    qr_tabs = self.page.locator('text=扫码登录')
+                    if await qr_tabs.count() > 0:
+                        await qr_tabs.first.click(timeout=3000)
+                        logger.info("Clicked QR tab")
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    logger.debug(f"No QR tab: {e}")
 
-                await asyncio.sleep(2)
-                await self.page.screenshot(path=f"/tmp/douyin_3_qr_tab_{session_id}.png")
+                await self.page.screenshot(path=f"/tmp/step3_qrpage_{session_id}.png")
+                logger.info("Step 3: Looking for QR code")
 
                 # Capture QR code
                 qr_image_base64 = await self._capture_qr_code(session_id)
@@ -155,8 +123,7 @@ class QRCodeLoginService:
                     return {"success": True, "session_id": session_id, "qr_image": qr_image_base64,
                             "message": "请使用抖音 App 扫描二维码登录"}
                 else:
-                    # Fallback: return full screenshot
-                    screenshot_path = f"/tmp/douyin_3_qr_tab_{session_id}.png"
+                    screenshot_path = f"/tmp/step3_qrpage_{session_id}.png"
                     with open(screenshot_path, "rb") as f:
                         screenshot_base64 = base64.b64encode(f.read()).decode()
                     login_sessions[session_id] = {
@@ -164,7 +131,7 @@ class QRCodeLoginService:
                         "created_at": datetime.now(), "service": self, "playwright": playwright
                     }
                     return {"success": True, "session_id": session_id, "qr_image": screenshot_base64,
-                            "message": "请在页面中找到二维码并使用抖音 App 扫描登录"}
+                            "message": "请在页面中找到二维码并扫描登录"}
 
             except Exception as e:
                 last_error = e
@@ -176,40 +143,72 @@ class QRCodeLoginService:
         return {"success": False, "error": str(last_error), "message": "启动登录会话失败"}
 
     async def _capture_qr_code(self, session_id: str) -> Optional[str]:
+        """Capture QR code image."""
         try:
-            for selector in self.QR_CODE_SELECTORS:
+            # Try specific selectors first
+            selectors = [
+                'img[class*="qrcode"]',
+                'img[class*="QRCode"]',
+                'img[class*="qr-code"]',
+                'div[class*="qrcode"] img',
+                'div[class*="QRCode"] img',
+                'div[class*="qr-code"] img',
+                'img[src*="qrcode"]',
+                'img[src*="data:image"]',
+            ]
+
+            for selector in selectors:
                 try:
-                    logger.debug(f"Trying selector: {selector}")
-                    element = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
-                    if element:
-                        box = await element.bounding_box()
-                        if box and box["width"] > 80 and box["height"] > 80:
-                            w = box["width"]
-                            h = box["height"]
-                            logger.info(f"Found QR with: {selector}, size: {w}x{h}")
-                            screenshot = await element.screenshot()
-                            return base64.b64encode(screenshot).decode()
+                    logger.debug(f"Trying: {selector}")
+                    elements = self.page.locator(selector)
+                    count = await elements.count()
+                    for i in range(count):
+                        el = elements.nth(i)
+                        box = await el.bounding_box()
+                        if box and 120 < box["width"] < 400 and 120 < box["height"] < 400:
+                            ratio = box["width"] / box["height"]
+                            if 0.8 < ratio < 1.2:
+                                logger.info(f"Found QR: {selector}, {box['width']}x{box['height']}")
+                                screenshot = await el.screenshot()
+                                return base64.b64encode(screenshot).decode()
                 except Exception as e:
                     logger.debug(f"Selector failed: {e}")
-                    continue
 
-            # Fallback: find square images
+            # Fallback: find any square image
+            logger.info("Trying fallback image search...")
             images = await self.page.query_selector_all("img")
             for img in images:
                 try:
                     box = await img.bounding_box()
-                    if box and 100 < box["width"] < 400 and 100 < box["height"] < 400:
-                        src = await img.get_attribute("src") or ""
-                        if "data:image" in src or "qr" in src.lower():
-                            screenshot = await img.screenshot()
+                    if box and 120 < box["width"] < 350 and 120 < box["height"] < 350:
+                        ratio = box["width"] / box["height"]
+                        if 0.85 < ratio < 1.15:
+                            src = await img.get_attribute("src") or ""
+                            if src.startswith("data:image") or "qr" in src.lower() or "code" in src.lower():
+                                logger.info(f"Found image QR: {box['width']}x{box['height']}")
+                                screenshot = await img.screenshot()
+                                return base64.b64encode(screenshot).decode()
+                except Exception:
+                    continue
+
+            # Try canvas
+            canvases = await self.page.query_selector_all("canvas")
+            for canvas in canvases:
+                try:
+                    box = await canvas.bounding_box()
+                    if box and 120 < box["width"] < 350 and 120 < box["height"] < 350:
+                        ratio = box["width"] / box["height"]
+                        if 0.85 < ratio < 1.15:
+                            logger.info(f"Found canvas QR: {box['width']}x{box['height']}")
+                            screenshot = await canvas.screenshot()
                             return base64.b64encode(screenshot).decode()
                 except Exception:
                     continue
 
-            logger.warning("Could not find QR code")
+            logger.warning("QR code not found")
             return None
         except Exception as e:
-            logger.error(f"Failed to capture QR: {e}")
+            logger.error(f"Capture error: {e}")
             return None
 
     async def check_login_status(self, session_id: str) -> Dict[str, Any]:
@@ -226,27 +225,22 @@ class QRCodeLoginService:
             return {"status": "error", "message": "登录会话异常"}
 
         try:
-            is_logged_in = False
-            try:
-                ls = await service.page.evaluate("() => window.localStorage")
-                if ls and ls.get("HasUserLogin") == "1":
-                    is_logged_in = True
-            except Exception:
-                pass
-
             cookies = await service.context.cookies()
             cookie_dict = {c["name"]: c["value"] for c in cookies}
-            if cookie_dict.get("LOGIN_STATUS") == "1" or cookie_dict.get("sessionid"):
+
+            is_logged_in = False
+            if cookie_dict.get("LOGIN_STATUS") == "1":
+                is_logged_in = True
+            if cookie_dict.get("sessionid"):
                 is_logged_in = True
 
             if is_logged_in:
                 cookie_string = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
                 session["status"] = "success"
-                session["cookie"] = cookie_string
                 await self._save_cookie(cookie_string)
                 await self.cleanup_session(session_id)
                 return {"status": "success", "message": "登录成功！Cookie已保存",
-                        "cookie": cookie_string[:100] + "..." if len(cookie_string) > 100 else cookie_string}
+                        "cookie": cookie_string[:100] + "..."}
 
             return {"status": "waiting", "message": "等待扫码..."}
         except Exception as e:
@@ -273,7 +267,7 @@ class QRCodeLoginService:
             from app.config import settings
             settings.douyin_cookie = cookie
         except Exception as e:
-            logger.error(f"Failed to save cookie: {e}")
+            logger.error(f"Save error: {e}")
 
     async def cleanup_session(self, session_id: str):
         session = login_sessions.pop(session_id, None)
@@ -307,7 +301,7 @@ async def create_login_session() -> Dict[str, Any]:
 async def check_session_status(session_id: str) -> Dict[str, Any]:
     session = login_sessions.get(session_id)
     if not session:
-        return {"status": "expired", "message": "登录会话不存在或已过期"}
+        return {"status": "expired", "message": "会话不存在"}
     service = session.get("service")
     if service:
         return await service.check_login_status(session_id)
